@@ -483,13 +483,17 @@ func (s *rpcServer) NewSubscriber(topic string, sb interface{}, opts ...Subscrib
 
 func (s *rpcServer) Subscribe(sb Subscriber) error {
 	s.Lock()
-	defer s.Unlock()
 
 	if err := s.router.Subscribe(sb); err != nil {
 		return err
 	}
 
 	s.subscribers[sb] = nil
+	s.Unlock()
+
+	// trigger subscriptions
+	s.Register()
+
 	return nil
 }
 
@@ -606,11 +610,6 @@ func (s *rpcServer) Register() error {
 		return err
 	}
 
-	// already registered? don't need to register subscribers
-	if registered {
-		return nil
-	}
-
 	s.Lock()
 	defer s.Unlock()
 
@@ -628,7 +627,13 @@ func (s *rpcServer) Register() error {
 	s.subscriber = sub
 
 	// subscribe for all of the subscribers
-	for sb := range s.subscribers {
+	for sb, bsb := range s.subscribers {
+
+		if bsb != nil {
+			// subscribed to broker already - no need to resubscribe
+			continue
+		}
+
 		var opts []broker.SubscribeOption
 		if queue := sb.Options().Queue; len(queue) > 0 {
 			opts = append(opts, broker.Queue(queue))
